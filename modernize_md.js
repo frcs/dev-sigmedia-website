@@ -58,7 +58,7 @@ function processFile(filePath) {
   let content = fs.readFileSync(filePath, 'utf8');
   let lines = content.split('\n');
   let newLines = [];
-  let inTable = false;
+  let inGlobalInfo = false;
 
   for (let i = 0; i < lines.length; i++) {
     let line = lines[i];
@@ -70,6 +70,11 @@ function processFile(filePath) {
     // 2. Fix broken headers
     if (line.startsWith('#')) {
         line = fixHeader(line);
+        if (line.includes('Global Information')) {
+            inGlobalInfo = true;
+        } else {
+            inGlobalInfo = false;
+        }
     }
 
     // 3. Fix broken tables
@@ -85,10 +90,6 @@ function processFile(filePath) {
         const prevLine = newLines[newLines.length - 1];
         if (prevLine && !prevLine.trim().startsWith('|') && !prevLine.trim().includes('|')) {
             // Previous line doesn't look like a table header.
-            // But if it's "Examples", it's definitely not a header.
-            // For the stereo_video_database.md case:
-            // "Here are a couple of examples ... at full resolution."
-            // We should insert an empty header row.
             const columnCount = fixedLine.split('|').length - 2;
             const emptyHeader = '|' + ' |'.repeat(columnCount);
             newLines.push(emptyHeader);
@@ -96,10 +97,41 @@ function processFile(filePath) {
         line = fixedLine;
     } else if (line.includes('|') && !line.trim().startsWith('|')) {
         // Table row missing leading/trailing pipes?
-        // ![]() | ![]()
-        // Let's add them for consistency if it looks like a table row
         if (line.trim().split('|').length > 1) {
              line = '| ' + line.trim() + ' |';
+        }
+    }
+
+    // 4. Fix Global Information fields (use custom span for label)
+    if (inGlobalInfo && line.trim().startsWith('- ')) {
+        const commonFields = ['Download link', 'Contact', 'License', 'Reference', 'Repository', 'Sponsor'];
+        
+        // Try to find a match for common fields first
+        let found = false;
+        for (const field of commonFields) {
+            const regex = new RegExp(`^(\\s*-\\s+)(\\*\\*)?(${field})(\\*\\*)?:?\\s*(.*)`, 'i');
+            const match = line.match(regex);
+            if (match) {
+                const indent = match[1];
+                const fieldName = match[3]; // Keep original casing or could use field
+                const value = match[5].trim();
+                line = `${indent}<span class="field-label">${fieldName}</span> ${value}`.trimEnd();
+                found = true;
+                break;
+            }
+        }
+        
+        // Fallback for other short bolded items at the start of the list item
+        if (!found) {
+            const match = line.match(/^(\s*-\s+)\*\*([^*:]+)\*\*:\s*(.*)/);
+            if (match) {
+                const indent = match[1];
+                const fieldName = match[2].trim();
+                const value = match[3].trim();
+                if (fieldName.length < 25) {
+                    line = `${indent}<span class="field-label">${fieldName}</span> ${value}`.trimEnd();
+                }
+            }
         }
     }
 
