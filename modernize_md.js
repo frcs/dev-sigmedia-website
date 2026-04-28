@@ -3,7 +3,8 @@ const path = require('path');
 
 const directories = [
   'sigmedia-astro/src/content/dataset/',
-  'sigmedia-astro/src/content/software/'
+  'sigmedia-astro/src/content/software/',
+  'sigmedia-astro/src/content/posts/'
 ];
 
 function titleCase(str) {
@@ -47,28 +48,37 @@ function fixHeader(line) {
 
 function processFile(filePath) {
   let content = fs.readFileSync(filePath, 'utf8');
+  
+  // 1. Remove {: ... } attributes and Jekyll/Liquid tags
+  content = content.replace(/\{: [^}]+\}/g, '');
+  content = content.replace(/\{:[^}]+\}/g, '');
+  content = content.replace(/\{% raw %\}/g, '');
+  content = content.replace(/\{% endraw %\}/g, '');
+  
   let lines = content.split('\n');
   
-  // 1. Extract BibTeX block
+  // 2. Extract BibTeX block (only for dataset/software)
   let bibBlock = null;
   let bibStart = -1;
   let bibEnd = -1;
   
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i].trim().startsWith('```bibtex')) {
-      bibStart = i;
-      for (let j = i + 1; j < lines.length; j++) {
-        if (lines[j].trim() === '```') {
-          bibEnd = j;
-          bibBlock = lines.slice(bibStart, bibEnd + 1).join('\n');
+  if (filePath.includes('/dataset/') || filePath.includes('/software/')) {
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].trim().startsWith('```bibtex')) {
+          bibStart = i;
+          for (let j = i + 1; j < lines.length; j++) {
+            if (lines[j].trim() === '```') {
+              bibEnd = j;
+              bibBlock = lines.slice(bibStart, bibEnd + 1).join('\n');
+              break;
+            }
+          }
           break;
         }
       }
-      break;
-    }
   }
 
-  // 2. Process lines
+  // 3. Process lines
   let newLines = [];
   let inGlobalInfo = false;
   let bibRemoved = false;
@@ -85,9 +95,6 @@ function processFile(filePath) {
     // Skip reference div wrappers
     if (line.trim() === '<div id="reference">') continue;
     if (line.trim() === '</div>' && bibRemoved) {
-        // Only skip the </div> if we just removed the bib block before it
-        // and there isn't another div above it.
-        // Actually, let's just skip all <div> wrappers in Global Info area for safety
         continue;
     }
 
@@ -108,7 +115,6 @@ function processFile(filePath) {
         if (!fixedLine.startsWith('|')) fixedLine = '| ' + fixedLine;
         if (!fixedLine.endsWith('|')) fixedLine = fixedLine + ' |';
         
-        // Check if it's actually a separator row (contains only -, :, |, and spaces)
         if (/^[|:\-\s]+$/.test(fixedLine)) {
             const prevLine = newLines[newLines.length - 1];
             if (prevLine && !prevLine.trim().startsWith('|') && !prevLine.trim().includes('|')) {
@@ -141,7 +147,6 @@ function processFile(filePath) {
                 }
 
                 if (fieldName.toLowerCase() === 'reference' && bibBlock) {
-                    // Place the bibBlock here
                     line = `${indent}<span class="field-label">${fieldName}</span>\n\n${bibBlock}`;
                     found = true;
                     break;
@@ -169,10 +174,10 @@ function processFile(filePath) {
     newLines.push(line);
   }
 
-  // Cleanup: remove multiple empty lines that might have been created
+  // Cleanup: remove multiple empty lines
   let finalLines = [];
   for (let i = 0; i < newLines.length; i++) {
-      if (newLines[i].trim() === '' && i > 0 && finalLines[finalLines.length-1].trim() === '') {
+      if (newLines[i].trim() === '' && i > 0 && finalLines.length > 0 && finalLines[finalLines.length-1].trim() === '') {
           continue;
       }
       finalLines.push(newLines[i]);
@@ -186,10 +191,12 @@ function processFile(filePath) {
 }
 
 directories.forEach(dir => {
-  const files = fs.readdirSync(dir);
-  files.forEach(file => {
-    if (file.endsWith('.md') || file.endsWith('.markdown')) {
-      processFile(path.join(dir, file));
-    }
-  });
+  if (fs.existsSync(dir)) {
+      const files = fs.readdirSync(dir);
+      files.forEach(file => {
+        if (file.endsWith('.md') || file.endsWith('.markdown')) {
+          processFile(path.join(dir, file));
+        }
+      });
+  }
 });
