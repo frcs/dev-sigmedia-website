@@ -102,19 +102,22 @@ function processFile(filePath) {
     }
 
     // Fix broken tables
-    if (line.trim().startsWith(':---')) {
+    if (line.trim().startsWith(':---') || (line.trim().startsWith('|') && line.includes('---'))) {
         let fixedLine = line.trim();
         if (fixedLine.startsWith(':')) fixedLine = fixedLine.slice(1);
         if (!fixedLine.startsWith('|')) fixedLine = '| ' + fixedLine;
         if (!fixedLine.endsWith('|')) fixedLine = fixedLine + ' |';
         
-        const prevLine = newLines[newLines.length - 1];
-        if (prevLine && !prevLine.trim().startsWith('|') && !prevLine.trim().includes('|')) {
-            const columnCount = fixedLine.split('|').length - 2;
-            const emptyHeader = '|' + ' |'.repeat(columnCount);
-            newLines.push(emptyHeader);
+        // Check if it's actually a separator row (contains only -, :, |, and spaces)
+        if (/^[|:\-\s]+$/.test(fixedLine)) {
+            const prevLine = newLines[newLines.length - 1];
+            if (prevLine && !prevLine.trim().startsWith('|') && !prevLine.trim().includes('|')) {
+                const columnCount = (fixedLine.match(/\|/g) || []).length - 1;
+                const emptyHeader = '|' + ' |'.repeat(columnCount);
+                newLines.push(emptyHeader);
+            }
+            line = fixedLine;
         }
-        line = fixedLine;
     } else if (line.includes('|') && !line.trim().startsWith('|')) {
         if (line.trim().split('|').length > 1) {
              line = '| ' + line.trim() + ' |';
