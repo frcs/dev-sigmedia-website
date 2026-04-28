@@ -63,6 +63,16 @@ function processFile(filePath) {
   for (let i = 0; i < lines.length; i++) {
     let line = lines[i];
 
+    // 0. Wrap bibtex in div id=reference
+    if (line.trim().startsWith('```bibtex')) {
+        const prevLine = newLines.length > 0 ? newLines[newLines.length-1].trim() : '';
+        const prevPrevLine = newLines.length > 1 ? newLines[newLines.length-2].trim() : '';
+        if (prevLine !== '<div id="reference">' && prevPrevLine !== '<div id="reference">') {
+            newLines.push('<div id="reference">');
+            newLines.push('');
+        }
+    }
+
     // 1. Remove {: ... }
     line = line.replace(/\{: [^}]+\}/g, '');
     line = line.replace(/\{:[^}]+\}/g, '');
@@ -109,12 +119,33 @@ function processFile(filePath) {
         // Try to find a match for common fields first
         let found = false;
         for (const field of commonFields) {
-            const regex = new RegExp(`^(\\s*-\\s+)(\\*\\*)?(${field})(\\*\\*)?:?\\s*(.*)`, 'i');
+            // Match "- **Field** Value" or "- <span class="field-label">Field</span> Value"
+            const regex = new RegExp(`^(\\s*-\\s+)(?:(\\*\\*)|<span class="field-label">)(${field})(?:(\\*\\*)|<\\/span>):?\\s*(.*)`, 'i');
             const match = line.match(regex);
             if (match) {
                 const indent = match[1];
-                const fieldName = match[3]; // Keep original casing or could use field
-                const value = match[5].trim();
+                const fieldName = match[3];
+                let value = match[5].trim();
+
+                // a) Default License if empty
+                if (fieldName.toLowerCase() === 'license' && value === '') {
+                    value = 'Non-commercial only';
+                }
+
+                // b) Map Reference to bibtex key if empty
+                if (fieldName.toLowerCase() === 'reference' && value === '') {
+                    // Look ahead for the bibtex block and extract the key
+                    for (let j = i + 1; j < Math.min(i + 15, lines.length); j++) {
+                        const nextLine = lines[j];
+                        // Match @type{key,
+                        const bibMatch = nextLine.match(/@[a-zA-Z]+\{([^,]+),/);
+                        if (bibMatch) {
+                            value = `[${bibMatch[1]}](#reference)`;
+                            break;
+                        }
+                    }
+                }
+
                 line = `${indent}<span class="field-label">${fieldName}</span> ${value}`.trimEnd();
                 found = true;
                 break;
@@ -136,6 +167,28 @@ function processFile(filePath) {
     }
 
     newLines.push(line);
+
+    if (line.trim() === '```' && i > 0 && lines[i-1].includes('}')) {
+        // This is likely the end of a bibtex block we wrapped
+        // Check if we are inside a bibtex block (crude check)
+        let isBibtexEnd = false;
+        for (let k = i - 1; k >= Math.max(0, i - 20); k--) {
+            if (lines[k].trim().startsWith('```bibtex')) {
+                isBibtexEnd = true;
+                break;
+            }
+            if (lines[k].trim().startsWith('```')) break;
+        }
+        
+        // Only close if we are not already closed by existing content
+        const nextLine = (i + 1 < lines.length) ? lines[i+1].trim() : '';
+        const nextNextLine = (i + 2 < lines.length) ? lines[i+2].trim() : '';
+        
+        if (isBibtexEnd && nextLine !== '</div>' && nextNextLine !== '</div>') {
+            newLines.push('');
+            newLines.push('</div>');
+        }
+    }
   }
 
   const newContent = newLines.join('\n');
